@@ -24,27 +24,58 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deactivate = exports.activate = void 0;
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 const vscode = __importStar(require("vscode"));
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+const openai_1 = require("openai");
 function activate(context) {
-    // Use the console to output diagnostic information (console.log) and errors (console.error)
-    // This line of code will only be executed once when your extension is activated
     console.log('Congratulations, your extension "gpt2vscode" is now active!');
-    // The command has been defined in the package.json file
-    // Now provide the implementation of the command with registerCommand
-    // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand('gpt2vscode.helloWorld', () => {
-        // The code you place here will be executed every time your command is executed
-        // Display a message box to the user
-        vscode.window.showInformationMessage('Hello World from gpt2vscode!');
+    let disposable = vscode.commands.registerCommand('gpt2vscode.sendToGPT', async () => {
+        const content = getViewportContent();
+        if (content) {
+            const response = await sendToGPT(content);
+            displayInNewTab(response);
+        }
+        else {
+            vscode.window.showErrorMessage('No content found in the current viewport.');
+        }
     });
     context.subscriptions.push(disposable);
 }
 exports.activate = activate;
-// This method is called when your extension is deactivated
 function deactivate() { }
 exports.deactivate = deactivate;
+function getViewportContent() {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+        const range = new vscode.Range(editor.visibleRanges[0].start, editor.visibleRanges[0].end);
+        return editor.document.getText(range);
+    }
+    return undefined;
+}
+async function sendToGPT(content) {
+    const openai = new openai_1.OpenAI({
+        apiKey: process.env.OPENAI_API_KEY || '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', // Replace with your OpenAI API key
+    });
+    try {
+        const response = await openai.completions.create({
+            model: 'text-davinci-003',
+            prompt: content,
+            max_tokens: 150,
+        });
+        return response.choices[0].text.trim();
+    }
+    catch (error) {
+        console.error('Error communicating with OpenAI:', error);
+        return 'Error: Could not get a response from OpenAI.';
+    }
+}
+async function displayInNewTab(response) {
+    const document = await vscode.workspace.openTextDocument({
+        content: response,
+        language: 'text' // You can specify the language or leave it as 'text'
+    });
+    await vscode.window.showTextDocument(document, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Beside // This will open the document to the side of the current one
+    });
+}
 //# sourceMappingURL=extension.js.map

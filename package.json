@@ -1,7 +1,7 @@
 {
   "name": "gpt2vscode",
   "displayName": "gpt2vscode",
-  "description": "",
+  "description": "Interact with OpenAI's GPT models directly from VSCode.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.84.0"
@@ -9,13 +9,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:gpt2vscode.sendToGPT"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "gpt2vscode.helloWorld",
-        "title": "Hello World"
+        "command": "gpt2vscode.sendToGPT",
+        "title": "Send to GPT"
       }
     ]
   },
@@ -28,15 +30,19 @@
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.84.0",
     "@types/mocha": "^10.0.3",
     "@types/node": "18.x",
+    "@types/vscode": "^1.84.0",
     "@typescript-eslint/eslint-plugin": "^6.9.0",
     "@typescript-eslint/parser": "^6.9.0",
+    "@vscode/test-electron": "^2.3.6",
     "eslint": "^8.52.0",
     "glob": "^10.3.10",
     "mocha": "^10.2.0",
-    "typescript": "^5.2.2",
-    "@vscode/test-electron": "^2.3.6"
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "openai": "^4.19.0"
   }
 }
