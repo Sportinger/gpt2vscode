@@ -3,32 +3,104 @@ import { OpenAI } from 'openai';
 
 
 
+
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Congratulations, your extension "gpt2vscode" is now active!');
 
-    let disposable = vscode.commands.registerCommand('gpt2vscode.sendToGPT', async () => {
-        const content = getViewportContent();
-        if (content) {
-            const userMessage = await vscode.window.showInputBox({
-                prompt: 'Enter a message to send to GPT along with the content',
-                placeHolder: 'Type your message here...'
-            });
-
-            if (userMessage !== undefined) {
-                const problems = getProblems();
-                await sendToGPT(content, problems, userMessage);
-            }
-        } else {
-            vscode.window.showErrorMessage('No content found in the current viewport.');
-        }
+    let disposableSendToGPT = vscode.commands.registerCommand('gpt2vscode.sendToGPT', async () => {
+        // This function will handle user input, options, and sending the message to GPT
+        await getUserInputAndOptions();
     });
 
-    // Register the command that applies the edit
-    let applyEditCommand = vscode.commands.registerCommand('gpt2vscode.applyEdit', (args) => {
+    let disposableApplyEdit = vscode.commands.registerCommand('gpt2vscode.applyEdit', (args) => {
         applyEdit(args.line, args.newText);
     });
 
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(disposableSendToGPT, disposableApplyEdit);
+}
+
+
+
+async function getUserInputAndOptions() {
+    // Capture the content of the active text editor at the time the button is pressed
+    const originalEditor = vscode.window.activeTextEditor;
+    const originalContent = originalEditor ? originalEditor.document.getText() : '';
+    // Check if a "ToGPT.txt" file exists in the workspace
+    const toGPTFiles = await vscode.workspace.findFiles('ToGPT.txt');
+
+    let toGPTDocument;
+    if (toGPTFiles.length > 0) {
+        // If the file exists, open it
+        toGPTDocument = await vscode.workspace.openTextDocument(toGPTFiles[0]);
+    } else {
+        // If the file does not exist, create it
+        toGPTDocument = await vscode.workspace.openTextDocument({
+            language: 'text',
+            content: ''
+        });
+        // Save the new file as "ToGPT.txt" in the workspace root
+        const workspaceFolder = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : '';
+        const uri = vscode.Uri.file(workspaceFolder + '/ToGPT.txt');
+        await toGPTDocument.saveAs(uri);
+    }
+
+    // Open the document in a new editor view column or beside the current one
+    const toGPTDocumentEditor = await vscode.window.showTextDocument(toGPTDocument, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Beside
+    });
+
+    // Clear the contents of the "ToGPT" file
+    await toGPTDocumentEditor.edit(editBuilder => {
+        const fullRange = new vscode.Range(
+            toGPTDocument.lineAt(0).range.start,
+            toGPTDocument.lineAt(toGPTDocument.lineCount - 1).range.end
+        );
+        editBuilder.delete(fullRange);
+    });
+
+    // Step 1: Ask the user for a prompt
+    const userPrompt = await vscode.window.showInputBox({
+        prompt: 'Enter a message to send to GPT along with the content',
+        placeHolder: 'Type your message here...'
+    });
+
+    // If the user cancels the input box, stop the flow
+    if (userPrompt === undefined) {
+        return;
+    }
+
+    // Write the user prompt to the "ToGPT" file
+    await toGPTDocumentEditor.edit(editBuilder => {
+        editBuilder.insert(new vscode.Position(0, 0), userPrompt + '\n\n');
+    });
+
+    // Step 2: Show the Quick Pick with the "Full Code" option
+    const includeFullCode = await vscode.window.showQuickPick(
+        [{ label: "Include Full Code", description: "Toggle to include the full code of the current viewport" }],
+        { placeHolder: 'Toggle to include the full code of the current viewport', canPickMany: false }
+    );
+
+    // If the user selects the "Include Full Code" option, include the original content
+    if (includeFullCode && originalContent) {
+        // Append the original content to the content being sent
+        await toGPTDocumentEditor.edit(editBuilder => {
+            editBuilder.insert(toGPTDocumentEditor.document.lineAt(toGPTDocumentEditor.document.lineCount - 1).range.end, '\n' + originalContent);
+        });
+    }
+
+    // Continue with sending the content to GPT
+    const fullMessage = toGPTDocument.getText();
+    console.log('Sending content to GPT:', fullMessage);
+    await sendToGPT(fullMessage);
+}
+
+    function getViewportContent(editor: vscode.TextEditor): string {
+    const fullRange = editor.document.validateRange(
+        new vscode.Range(0, 0, Number.MAX_VALUE, Number.MAX_VALUE)
+    );
+    return editor.document.getText(fullRange);
 }
 
 export function deactivate() {}
@@ -60,20 +132,17 @@ function getProblems(): string {
     return problems;
 }
 
-async function sendToGPT(content: string, problems: string, userMessage: string): Promise<void> {
+async function sendToGPT(fullMessage: string): Promise<void> {
     const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY || 'INPUT_YOUR_API_KEY', // Replace with your OpenAI API key
+        apiKey: process.env.OPENAI_API_KEY || 'sk-E9byDxV9UX98NZ', // Replace with your OpenAI API key
     });
 
     try {
         const chatCompletion = await openai.chat.completions.create({
             model: 'gpt-4-1106-preview', // Replace with your desired model
             messages: [
-                { role: 'system', content: 'You are an advanced coding assistant tasked with providing precise and actionable code edits. When analyzing code snippets, error messages, and user inputs, your response should specifically identify complete lines that require replacement. ' },
-                { role: 'user', content: content },
-                { role: 'user', content: problems }, // Include the problems from the Problems section
-                { role: 'user', content: userMessage }, // Include the user's message
-                { role: 'user', content: 'Adopt the format //REPLACE Line X: "new code" for each edit suggestion. "X" represents the line number. Crucially, include the exact indentation (spaces or tabs) used at the beginning of the line being replaced. Enclose the new code in double quotes and ensure it includes this leading indentation, so it aligns correctly when implemented. Focus solely on the lines needing changes, and exclude surrounding unchanged code..' }
+                { role: 'system', content: 'You are an advanced coding assistant tasked with providing precise and actionable code edits. When analyzing code snippets, error messages, and user inputs, your response should specifically identify complete lines that require replacement.Adopt the format //REPLACE Line X: "new code" for each edit suggestion. "X" represents the line number. Crucially, include the exact indentation (spaces or tabs) used at the beginning of the line being replaced. Enclose the new code in double quotes and ensure it includes this leading indentation, so it aligns correctly when implemented. Focus solely on the lines needing changes, and exclude surrounding unchanged code ' },
+                { role: 'user', content: fullMessage } // Send the full message to GPT
             ],
             temperature: 0, // Add the temperature parameter
             max_tokens: 4000, // Add the max_tokens parameter
